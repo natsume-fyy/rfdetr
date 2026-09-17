@@ -50,6 +50,12 @@ from rfdetr.utilities.logger import get_logger
 
 logger = get_logger()
 
+_AREA_AP_METRICS = (
+    ("small", "AP small"),
+    ("medium", "AP medium"),
+    ("large", "AP large"),
+)
+
 
 def _warn_missing_rich_once(warning_emitted: bool) -> bool:
     """Warn once when metric table rendering is skipped because Rich is unavailable.
@@ -122,6 +128,8 @@ class COCOEvalCallback(Callback):
 
     - ``val/mAP_50_95``, ``val/mAP_50``, ``val/mAP_75``, ``val/mAR`` using
       ``torchmetrics.detection.MeanAveragePrecision``.
+    - ``val/AP_small``, ``val/AP_medium``, ``val/AP_large`` using the standard
+      COCO object-area ranges.
     - Per-class ``val/AP/<name>`` when class names are available.
     - ``val/F1``, ``val/precision``, ``val/recall`` from a confidence-threshold
       sweep over compact per-class matching data (DDP-safe).
@@ -667,6 +675,11 @@ class COCOEvalCallback(Callback):
             trainer.callback_metrics[f"{split}/ema_mAP_50"] = ema_metrics[f"{pfx}map_50"].detach().cpu()
             trainer.callback_metrics[f"{split}/ema_mAP_75"] = ema_metrics[f"{pfx}map_75"].detach().cpu()
             trainer.callback_metrics[f"{split}/ema_mAR"] = ema_metrics[mar_key].detach().cpu()
+            for area, _label in _AREA_AP_METRICS:
+                value = ema_metrics[f"{pfx}map_{area}"]
+                key = f"{split}/ema_AP_{area}"
+                pl_module.log(key, value, logger=True, on_step=False, on_epoch=True)
+                trainer.callback_metrics[key] = value.detach().cpu()
             if self._use_segm_metrics:
                 pl_module.log(
                     f"{split}/ema_segm_mAP_50_95", ema_metrics["segm_map"], logger=True, on_step=False, on_epoch=True
@@ -872,6 +885,8 @@ class COCOEvalCallback(Callback):
             "mAP 75": float(metrics[f"{pfx}map_75"]),
             f"mAR @{self._max_dets}": float(metrics[mar_key]),
         }
+        for area, label in _AREA_AP_METRICS:
+            overall[label] = float(metrics[f"{pfx}map_{area}"])
 
         pl_module.log(
             f"{split}/mAP_50_95", metrics[f"{pfx}map"], prog_bar=True, logger=True, on_step=False, on_epoch=True
@@ -881,6 +896,14 @@ class COCOEvalCallback(Callback):
         )
         pl_module.log(f"{split}/mAP_75", metrics[f"{pfx}map_75"], logger=True, on_step=False, on_epoch=True)
         pl_module.log(f"{split}/mAR", metrics[mar_key], logger=True, on_step=False, on_epoch=True)
+        for area, _label in _AREA_AP_METRICS:
+            pl_module.log(
+                f"{split}/AP_{area}",
+                metrics[f"{pfx}map_{area}"],
+                logger=True,
+                on_step=False,
+                on_epoch=True,
+            )
 
         # Write directly into callback_metrics so ModelCheckpoint / EarlyStopping
         # read fresh values each epoch.  pl_module.log() from a callback's
@@ -890,6 +913,8 @@ class COCOEvalCallback(Callback):
         trainer.callback_metrics[f"{split}/mAP_50"] = metrics[f"{pfx}map_50"].detach().cpu()
         trainer.callback_metrics[f"{split}/mAP_75"] = metrics[f"{pfx}map_75"].detach().cpu()
         trainer.callback_metrics[f"{split}/mAR"] = metrics[mar_key].detach().cpu()
+        for area, _label in _AREA_AP_METRICS:
+            trainer.callback_metrics[f"{split}/AP_{area}"] = metrics[f"{pfx}map_{area}"].detach().cpu()
 
         should_compute_ema, _ema_metrics = self._compute_and_log_ema_metrics(trainer, pl_module, split, pfx, mar_key)
 
@@ -1225,6 +1250,8 @@ class COCOEvalCallback(Callback):
             "mAP 75": float(ema_metrics[f"{pfx}map_75"]),
             f"mAR @{self._max_dets}": float(ema_metrics[mar_key]),
         }
+        for area, label in _AREA_AP_METRICS:
+            overall_ema[label] = float(ema_metrics[f"{pfx}map_{area}"])
         if self._use_segm_metrics and "segm_map" in ema_metrics:
             overall_ema["segm mAP 50:95"] = float(ema_metrics["segm_map"])
             overall_ema["segm mAP 50"] = float(ema_metrics["segm_map_50"])

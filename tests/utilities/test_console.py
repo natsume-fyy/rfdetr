@@ -111,6 +111,18 @@ class TestRenderOverallMerged:
         result = _render_overall_merged("Val", _minimal_overall(), 500)
         assert "segm mAP" not in result
 
+    def test_object_size_ap_group_present_when_keys_exist(self) -> None:
+        """Small, medium, and large-object AP values render as one grouped section."""
+        overall = _minimal_overall()
+        overall.update({"AP small": 0.1, "AP medium": 0.2, "AP large": 0.3})
+
+        result = _render_overall_merged("Val", overall, 500)
+
+        assert "AP by size" in result
+        assert "Small" in result
+        assert "Medium" in result
+        assert "Large" in result
+
     def test_mar_label_uses_max_dets(self) -> None:
         """MAR column label contains the max_dets value."""
         result = _render_overall_merged("Val", _minimal_overall(100), 100)

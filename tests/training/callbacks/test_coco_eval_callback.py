@@ -68,6 +68,9 @@ def _minimal_metrics(pfx: str = "", max_dets: int = 500) -> dict:
         f"{pfx}map": torch.tensor(0.4),
         f"{pfx}map_50": torch.tensor(0.6),
         f"{pfx}map_75": torch.tensor(0.3),
+        f"{pfx}map_small": torch.tensor(0.1),
+        f"{pfx}map_medium": torch.tensor(0.2),
+        f"{pfx}map_large": torch.tensor(0.3),
         f"{pfx}mar_{max_dets}": torch.tensor(0.5),
     }
 
@@ -1561,8 +1564,33 @@ class TestOnValidationEpochEnd:
         assert "val/mAP_50" in trainer.callback_metrics
         assert "val/mAP_75" in trainer.callback_metrics
         assert "val/mAR" in trainer.callback_metrics
+        assert trainer.callback_metrics["val/AP_small"].item() == pytest.approx(0.1)
+        assert trainer.callback_metrics["val/AP_medium"].item() == pytest.approx(0.2)
+        assert trainer.callback_metrics["val/AP_large"].item() == pytest.approx(0.3)
         assert trainer.callback_metrics["val/mAP_50_95"].item() == pytest.approx(0.4)
         assert trainer.callback_metrics["val/mAP_50"].item() == pytest.approx(0.6)
+
+    def test_size_specific_ap_is_logged_and_printed(self) -> None:
+        """Small, medium, and large-object AP appear in logger output and the terminal summary."""
+        cb = COCOEvalCallback(max_dets=500)
+        trainer = _make_trainer()
+        trainer.callback_metrics = {}
+        cb.setup(trainer, _make_pl_module(), stage="fit")
+        cb.map_metric = MagicMock(name="map_metric")
+        cb.map_metric.compute.return_value = _minimal_metrics()
+        module = _make_pl_module()
+
+        with patch.object(cb, "_print_metrics_tables") as print_metrics_tables:
+            cb.on_validation_epoch_end(trainer, module)
+
+        logged = {item.args[0]: item.args[1] for item in module.log.call_args_list if len(item.args) >= 2}
+        assert logged["val/AP_small"].item() == pytest.approx(0.1)
+        assert logged["val/AP_medium"].item() == pytest.approx(0.2)
+        assert logged["val/AP_large"].item() == pytest.approx(0.3)
+        overall = print_metrics_tables.call_args.args[2]
+        assert overall["AP small"] == pytest.approx(0.1)
+        assert overall["AP medium"] == pytest.approx(0.2)
+        assert overall["AP large"] == pytest.approx(0.3)
 
     def test_callback_metrics_updated_with_ema_when_map_metric_ema_populated(self) -> None:
         """EMA metrics are written to callback_metrics when map_metric_ema has data."""
